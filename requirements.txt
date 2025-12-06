@@ -1,0 +1,13 @@
+fastapi==0.109.1
+uvicorn[standard]==0.22.0
+SQLAlchemy==2.0.44
+pydantic<2.0.0
+python-multipart==0.0.19
+passlib[argon2]==1.7.4
+argon2-cffi==25.1.0
+PyJWT==2.8.0
+dateparser==1.1.8
+apscheduler==3.10.1
+python-dotenv==1.0.0
+spacy
+xx_ent_wiki_sm
