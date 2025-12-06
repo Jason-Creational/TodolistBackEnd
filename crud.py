@@ -54,18 +54,12 @@ def create_task(db: Session, user_id: int, task_in):
     return t
 
 def get_task(db, task_id):
-    """Return task by id or None."""
+    """Return a task or None."""
     from models import Task
     return db.query(Task).filter(Task.id == task_id).first()
 
 def get_tasks_for_user(db, user_id: int, view: str = "inbox"):
-    """
-    Return tasks for a user filtered by view:
-      - inbox: all not-completed tasks
-      - today: tasks with date within today's UTC day and not completed
-      - upcoming: tasks with date after today and not completed
-      - completed: tasks marked completed
-    """
+    """Return tasks filtered by view (inbox/today/upcoming/completed)."""
     q = db.query(models.Task).filter(models.Task.owner_id == user_id)
 
     if view == "completed":
@@ -88,10 +82,9 @@ def get_tasks_for_user(db, user_id: int, view: str = "inbox"):
             models.Task.date >= start,
             models.Task.completed == False,
         )
-    else:  # inbox and fallback -> return all NOT completed (was only undated)
+    else:
         q = q.filter(models.Task.completed == False)
 
-    # order: undated first for inbox (nullsfirst), otherwise by date ascending then created_at
     try:
         q = q.order_by(func.coalesce(models.Task.date, datetime.max), models.Task.created_at.desc())
     except Exception:
@@ -118,6 +111,7 @@ def delete_task(db: Session, task_id: int):
     return True
 
 def get_tasks_with_reminder_due(db: Session, now):
+    """Return tasks that should be reminded at 'now' (used by scheduler)."""
     tasks = db.query(Task).filter(Task.date != None, Task.remind_before_minutes != None, Task.completed == False).all()
     due = []
     for t in tasks:

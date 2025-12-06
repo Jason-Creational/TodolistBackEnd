@@ -1,10 +1,10 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 import re
 
 from dateparser.search import search_dates
 
-# try to import spaCy and a small multilingual NER model (fallback if not installed)
+# try to load spaCy multilingual NER (optional)
 try:
     import spacy
 
@@ -12,61 +12,52 @@ try:
         _spacy_nlp = spacy.load("xx_ent_wiki_sm")
         logging.getLogger("nlp").info("spaCy model xx_ent_wiki_sm loaded")
     except Exception:
-        # model not installed / load failed
         _spacy_nlp = None
-        logging.getLogger("nlp").info("spaCy model xx_ent_wiki_sm not available, falling back to regex")
+        logging.getLogger("nlp").info("spaCy model not available, using regex fallback")
 except Exception:
     _spacy_nlp = None
 
 logger = logging.getLogger("nlp")
 
+
 def _to_iso(dt):
     return dt.isoformat() if isinstance(dt, datetime) else None
 
+
 def _extract_location_by_spacy(text: str):
-    """
-    Use spaCy NER (if available) to find location-like entities.
-    Returns first reasonable candidate or None.
-    """
+    """Return a location-like entity from text using spaCy, or None."""
     if not _spacy_nlp:
         return None
     try:
         doc = _spacy_nlp(text)
-        # prefer GPE / LOC / FAC / ORG if present; fallback to any LOC-like entity
+        # prefer geographic/location-like entity labels
         for ent in doc.ents:
-            if ent.label_ in ("GPE", "LOC", "FAC", "ORG", "LOC_ORG"):
+            if ent.label_ in ("GPE", "LOC", "FAC", "ORG"):
                 cand = ent.text.strip()
                 if cand:
                     return cand
-        # last-resort: return first entity
+        # fallback to first entity
         if doc.ents:
             return doc.ents[0].text.strip()
     except Exception as e:
-        logger.debug("spaCy extraction error: %s", e)
+        logger.debug("spaCy error: %s", e)
     return None
+
 
 def parse_date(text: str):
     """
-    Return dict:
-      {
-        "event": str | None,
-        "start_time": ISO str | None,
-        "end_time": ISO str | None,
-        "location": str | None,
-        "reminder_minutes": int | None
-      }
-
-    Uses:
-      - spaCy (xx_ent_wiki_sm) for location / entity hints if available
-      - dateparser.search.search_dates for date/time recognition
-      - regex heuristics for Vietnamese reminder phrases
+    Parse a short Vietnamese/English task line and return structured fields:
+      - event: cleaned title (or None)
+      - start_time / end_time: ISO datetimes (or None)
+      - location: short string (or None)
+      - reminder_minutes: integer minutes (or None)
     """
     if not text or not text.strip():
         return {"event": None, "start_time": None, "end_time": None, "location": None, "reminder_minutes": None}
 
     s = text.strip()
 
-    # 1) detect & remove reminder phrase first so it isn't parsed as a date
+    # extract and remove reminder phrase (e.g. "nhắc 30 phút trước")
     reminder_minutes = None
     rem_match = re.search(r'\bnhắc(?: tôi)?(?: (?:trước|trong))?\s+(\d+)\s*(phút|p|m|min)?\b', s, flags=re.I | re.U)
     if not rem_match:
@@ -84,7 +75,7 @@ def parse_date(text: str):
 
     s_for_dates = s_for_dates.strip()
 
-    # 2) use spaCy to extract location candidate (fallback to regex)
+    # try spaCy for location, else simple regex ("tại" or "ở")
     location = _extract_location_by_spacy(s_for_dates)
     if not location:
         m_loc = re.search(r'\b(?:tại|ở)\s+([^\,\.\;\n]+)', s, flags=re.I | re.U)
@@ -94,7 +85,7 @@ def parse_date(text: str):
             if cand:
                 location = cand
 
-    # 3) find date/time matches on cleaned text (reminder removed)
+    # parse date/time expressions (reminder removed)
     try:
         matches = search_dates(s_for_dates, languages=["vi", "en"], settings={"PREFER_DATES_FROM": "future"})
     except Exception:
@@ -103,7 +94,7 @@ def parse_date(text: str):
     start_dt = None
     end_dt = None
 
-    # explicit range detection ("từ ... đến ...")
+    # explicit range "từ ... đến ..."
     m_range = re.search(r'\b(?:từ|from)\s+(.+?)\s+(?:đến|to)\s+(.+?)(?:[\,\.\;]|$)', s_for_dates, flags=re.I | re.U)
     if m_range:
         try:
@@ -119,24 +110,23 @@ def parse_date(text: str):
             start_dt = matches[0][1]
             if len(matches) > 1:
                 cand = matches[1][1]
-                # accept second match as end only if it's after start (avoid reminder/time-before)
+                # only accept second match as end if it's after the start
                 if isinstance(start_dt, datetime) and isinstance(cand, datetime) and cand > start_dt:
                     end_dt = cand
 
-    # 4) derive event/title: remove date substrings, location and reminder phrases
+    # build event/title by removing parsed pieces
     event = s_for_dates
     if matches:
         for match_text, _dt in matches:
             event = event.replace(match_text, "")
-
     if m_range:
         event = re.sub(r'\b(?:từ|from)\s+.+?\s+(?:đến|to)\s+.+?(?:\b|$)', '', event, flags=re.I | re.U)
     if location:
-        # remove common location tokens occurrences
         event = re.sub(r'\b(?:tại|ở)\s+' + re.escape(location), '', event, flags=re.I | re.U)
     if rem_phrase:
         event = re.sub(re.escape(rem_phrase), '', event, flags=re.I)
 
+    # cleanup common temporal words and whitespace
     event = re.sub(r'\b(vào|vào lúc|hôm nay|ngày mai|sáng|chiều|tối|đêm|từ|đến|trong)\b', '', event, flags=re.I | re.U)
     event = re.sub(r'\s+', ' ', event).strip(' ,.-')
 

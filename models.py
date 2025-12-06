@@ -31,8 +31,8 @@ class Task(Base):
     description = Column(Text, nullable=True)
     date = Column(DateTime, nullable=True)
     remind_before_minutes = Column(Integer, nullable=True)
-    remind_at = Column(DateTime, nullable=True)        # when to remind
-    reminded = Column(Boolean, default=False)          # whether reminder was triggered
+    remind_at = Column(DateTime, nullable=True)
+    reminded = Column(Boolean, default=False)
     completed = Column(Boolean, default=False)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"))
@@ -41,7 +41,6 @@ class Task(Base):
     project = relationship("Project", back_populates="tasks")
     owner = relationship("User", back_populates="tasks")
 
-# Add Notification model
 class Notification(Base):
     __tablename__ = "notifications"
     id = Column(Integer, primary_key=True, index=True)

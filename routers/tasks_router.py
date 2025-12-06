@@ -10,6 +10,7 @@ from auth import decode_token
 tasks_router = APIRouter()
 
 def get_current_user_id(authorization: str = Header(None)):
+    """Extract user id from Authorization header (Bearer token)."""
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing auth header")
     parts = authorization.split()
@@ -22,10 +23,11 @@ def get_current_user_id(authorization: str = Header(None)):
 
 @tasks_router.get("/")
 def list_tasks(category: str = Query("inbox", alias="category"), user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Return tasks for current user filtered by category."""
     return crud.get_tasks_for_user(db, user_id, category)
 
 def _parse_iso_to_dt(val):
-    """Convert ISO string (accepts trailing 'Z') or datetime -> datetime or None."""
+    """Convert an ISO string (or datetime) to a datetime or None."""
     if val is None:
         return None
     if isinstance(val, datetime):
@@ -45,10 +47,9 @@ def _parse_iso_to_dt(val):
 
 @tasks_router.post("/", response_model=TaskOut)
 def create_task(payload: TaskCreate, db: Session = Depends(get_db), user_id: int = Depends(get_current_user_id)):
-    # create via crud (crud.create_task likely sets basic fields)
+    """Create a new task, applying parsed/ISO date fields safely."""
     t = crud.create_task(db, user_id, payload)
 
-    # convert and persist parsed/ISO fields safely
     if getattr(payload, "parsedDate", None):
         dt = _parse_iso_to_dt(payload.parsedDate)
         if dt:
@@ -71,10 +72,10 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db), user_id: int
 
 @tasks_router.get("/{task_id}", response_model=TaskOut)
 def get_task(task_id: int, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Return a single task by id."""
     task = crud.get_task(db, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    # optional: enforce user ownership here if needed
     return task
 
 @tasks_router.patch("/{task_id}")
@@ -84,7 +85,7 @@ def patch_task(
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    # convert date/remindAt string inputs to datetime objects before update
+    """Apply partial updates to a task. Converts ISO date strings to datetimes."""
     if "date" in patch:
         dt = _parse_iso_to_dt(patch.get("date"))
         patch["date"] = dt
@@ -96,7 +97,7 @@ def patch_task(
     if not updated:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    # create notification when marking completed
+    # create a simple notification when marking completed
     try:
         if "completed" in patch and bool(patch["completed"]) is True:
             msg = f"Task completed: {getattr(updated, 'title', 'Task')}"
@@ -116,6 +117,7 @@ def patch_task(
 
 @tasks_router.delete("/{task_id}")
 def delete_task(task_id: int, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Delete a task by id."""
     ok = crud.delete_task(db, task_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Task not found")
